@@ -1,0 +1,162 @@
+#!/bin/bash
+#
+# THIS SOFTWARE IS FREE SOFTWARE, GPLv3
+# THE REQUIREMENTS OF GPLv3 APPLY, YOU MUST REDISTRUBUTE THE SOURCE
+# SEE THE 'COPYING' FILE or http://www.gnu.org FOR A FULL COPY.
+#
+# Bash no fuzz password manager with dialog(1) frontend
+#
+# by Michael Ole Olsen <gnu@gmx.net> - 2008-02-19
+#
+# The vim gpg macro is inspired from the one from vimscripts.org
+# This script lets you edit gpg files using a dialog frontend for launching vim
+# The files may be of any encryption that gpg itself supports.
+# It only works with vim as editor.
+# Should work on a debian base install (no strange dependencies)
+#
+# Depends:
+# - Dialog, bash 2.x, gnupg (with own signature installed)
+# (usually already installed by your favorite linux dist)
+
+fileroot=/home/michael/.private/gpg
+menutitle="Choose one of the following or press to exit"
+newfilebut="Delete"
+dialogtitle="Select a file to decrypt"
+backtitle="GPG Password manager"
+encfile="Create encrypted file:"
+helplabel="Quit"
+canclabel="New File"
+
+[[ $DIALOG=="" ]] && DIALOG="dialog"
+type -P $DIALOG &>/dev/null || \
+    { echo "I require $DIALOG but it's not installed.  Aborting." >&2; exit 1; }
+
+umask 0007
+mkdir -p $fileroot 2>&1
+chmod -R 0770 $fileroot 2>&1 
+rquit=0;n=0;array=($(ls $fileroot))
+
+IFS=$'\n' read -a macros -d '' << EOF
+
+syntax off
+set nocompatible
+set expandtab
+set textwidth=0
+set shiftwidth=4
+set tabstop=4
+set softtabstop=4
+set backspace=2
+set shortmess=astI
+set laststatus=0
+set cindent
+set visualbell
+set t_vb=
+set ignorecase
+set incsearch
+set showmatch
+set matchtime=1
+set ttyfast
+set noswapfile
+set nobackup
+set modeline
+set fileencodings=utf-8,iso8859-1
+map qp :set paste<cr><insert>
+map fff gg!Gfmt -w $tw
+
+fu Setterm_defaults(...) range
+    set tw=78
+    set fo+=t
+endf
+fu CheckGPG_error(...) range
+if v:shell_error
+    echo "GPG decryption fail: Wrong password entered!"
+    sleep 3
+    :qa!
+endif
+endf
+autocmd!
+augroup enc
+au!
+au BufReadPre,FileReadPre *.gpg setl viminfo=
+au BufReadPre,FileReadPre *.gpg setl noswapfile
+au BufReadPre,FileReadPre *.gpg setl bin
+au BufReadPre,FileReadPre *.gpg let ch_save = &ch|set ch=2
+au BufReadPost,FileReadPost *.gpg '[,']!gpg --display-charset iso8859-1 --decrypt 2> /dev/null
+au BufReadPost,FileReadPost *.gpg %call CheckGPG_error()
+au BufReadPost,FileReadPost *.gpg setl nobin
+au BufReadPost,FileReadPost *.gpg let &ch = ch_save|unlet ch_save
+"au BufReadPost,FileReadPost *.gpg execute ":doautocmd BufReadPost " . expand("%:r")
+au BufWritePre,FileWritePre *.gpg '[,']!gpg --default-recipient-self -ae 2>/dev/null
+au BufWritePost,FileWritePost *.gpg u
+EOF
+#silent!
+tmpf=$(mktemp)
+for i in "${macros[@]}"; do
+	echo "${i}" >> $tmpf
+done
+
+for i in ${array[@]}
+do
+	menuitems="$menuitems $n ${i}"
+	let n+=1
+done
+
+do_quit() {
+    rm -f /tmp/$$
+    clear
+    (($rquit == 0)) && exec $0
+    exit
+}
+
+if [[ $1 == *.gpg ]]; then
+    vi -N -u $tmpf $1
+    exit
+fi
+
+dialog --backtitle "$backtitle" --title "$dialogtitle" \
+	--extra-button \
+	--extra-label "$newfilebut" \
+	--cancel-label "$canclabel" \
+	--help-button \
+	--help-label "$helplabel" \
+	--menu "$menutitle" \
+	24 62 16 $menuitems 2> /tmp/$$
+case $? in 
+	0)
+		# open gpg file in vim
+		selection=${array[$(cat /tmp/$$)]}
+		vi -N -u $tmpf $fileroot/$selection
+		exec $0
+	;;
+
+	1)
+		# create new gpg file
+		echo "create new gpg"
+		dialog --inputbox "$encfile" 6 37 2> /tmp/$$
+
+		if (( $? == 0 )); then
+			fname=$(head -n1 /tmp/$$)
+			(($(echo $fname|wc -c) > 1)) && vi -u $tmpf \
+			"$fileroot/$(head -n1 /tmp/$$).gpg" \
+			&& exec $0 || do_quit
+		else
+			do_quit
+		fi
+	;;
+
+	2) 	
+		rquit=1
+		do_quit
+	;;
+
+	3)	# delete gpg file
+		selection=${array[$(cat /tmp/$$)]}
+		cd $fileroot && \
+		mkdir -p .deleted > /dev/null 2>&1
+		mv $selection .deleted > /dev/null 2>&1
+		echo "$selection has been moved to .deleted"
+		sleep 1
+		exec $0
+	;;
+
+esac

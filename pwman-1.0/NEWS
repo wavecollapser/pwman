@@ -1,0 +1,15 @@
+2014-06
+    Made the progarm a GPLv3 program
+
+    uses bash,gpg,vim for editing gpg encrypted password files
+
+
+FUTURE TODO:
+~~~~~~~~~~~~~~~~~~~~ 
+    link with -lncurses , then we dont need dialog(1) frontend
+
+    but dialog(1) frontend is more 'portable' to GNU
+    GNU base install comes with dialog(1) usually.
+
+    if we change to ncurses we have to add it as a dependency
+    that has to be compiled first.
